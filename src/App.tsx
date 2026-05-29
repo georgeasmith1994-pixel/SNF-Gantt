@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Plus,
   Trash2,
@@ -156,18 +156,18 @@ export default function App() {
   ): void => {
     setDraggedId(id);
     e.dataTransfer.effectAllowed = "move";
-
-    // Capture the element before entering the timeout
-    const element = e.currentTarget;
-
     // Small timeout to allow the drag image to generate before adding opacity class
     setTimeout(() => {
-      element.classList.add("opacity-50");
+      if (e.target instanceof HTMLElement) {
+        e.target.classList.add("opacity-50");
+      }
     }, 0);
   };
 
   const handleDragEnd = (e: React.DragEvent<HTMLDivElement>): void => {
-    e.currentTarget.classList.remove("opacity-50");
+    if (e.target instanceof HTMLElement) {
+      e.target.classList.remove("opacity-50");
+    }
     setDraggedId(null);
   };
 
