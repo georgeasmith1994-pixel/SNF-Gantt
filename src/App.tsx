@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Plus,
   Trash2,
@@ -9,6 +9,28 @@ import {
   Percent,
   Palette,
 } from "lucide-react";
+// @ts-ignore
+import { initializeApp } from "firebase/app";
+// @ts-ignore
+import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+// @ts-ignore
+import { getFirestore, doc, setDoc, onSnapshot } from "firebase/firestore";
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyBozGTH6xMf59U6-4wEiJJ0AEo_ssBATFA",
+  authDomain: "gantt-schedule-cd88d.firebaseapp.com",
+  projectId: "gantt-schedule-cd88d",
+  storageBucket: "gantt-schedule-cd88d.firebasestorage.app",
+  messagingSenderId: "788974027318",
+  appId: "1:788974027318:web:0e250ebe9457c2cfaf8e97",
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const myAppId = "gantt-schedule-cd88d"; // Identifier used for database paths
 
 // --- Type Definitions ---
 interface Task {
@@ -38,7 +60,7 @@ const getDaysDifference = (startStr: string, endStr: string): number => {
 const initialTasks: Task[] = [
   {
     id: "1",
-    name: "Stud Wall Construction (80h)",
+    name: "Stud Wall Construction ",
     startDate: "2026-04-07",
     duration: 10,
     color: "bg-blue-500",
@@ -54,7 +76,7 @@ const initialTasks: Task[] = [
   },
   {
     id: "3",
-    name: "Ceiling Installation (32h)",
+    name: "Ceiling Installation ",
     startDate: "2026-04-18",
     duration: 4,
     color: "bg-purple-500",
@@ -70,7 +92,7 @@ const initialTasks: Task[] = [
   },
   {
     id: "5",
-    name: "Decoration (16h)",
+    name: "Decoration ",
     startDate: "2026-04-23",
     duration: 2,
     color: "bg-pink-500",
@@ -95,6 +117,67 @@ const colorPalette = [
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    // Authenticate the user anonymously to allow database saving
+    const initAuth = async () => {
+      try {
+        await signInAnonymously(auth);
+      } catch (error) {
+        console.error("Authentication failed:", error);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    // Reference to the user's specific schedule document
+    const docRef = doc(
+      db,
+      "artifacts",
+      myAppId,
+      "users",
+      user.uid,
+      "gantt",
+      "schedule"
+    );
+
+    // Listen for real-time updates
+    const unsubscribe = onSnapshot(
+      docRef,
+      (docSnap: any) => {
+        if (docSnap.exists()) {
+          setTasks(docSnap.data().tasks);
+        }
+        setIsLoaded(true);
+      },
+      (error: any) => console.error("Error fetching schedule:", error)
+    );
+    return () => unsubscribe();
+  }, [user]);
+
+  const saveTasks = (newTasks: Task[]) => {
+    setTasks(newTasks);
+    // Only save if the initial load has completed, to prevent overwriting cloud data with defaults
+    if (user && isLoaded) {
+      const docRef = doc(
+        db,
+        "artifacts",
+        myAppId,
+        "users",
+        user.uid,
+        "gantt",
+        "schedule"
+      );
+      setDoc(docRef, { tasks: newTasks }).catch(console.error);
+    }
+  };
 
   // --- State Handlers ---
   const handleTaskChange = (
@@ -102,22 +185,18 @@ export default function App() {
     field: keyof Task,
     value: string | number
   ): void => {
-    setTasks(
-      tasks.map((task) => {
-        if (task.id !== id) return task;
+    const newTasks = tasks.map((task) => {
+      if (task.id !== id) return task;
 
-        let parsedValue: string | number = value;
-        if (field === "duration")
-          parsedValue = Math.max(1, parseInt(String(value)) || 1);
-        if (field === "progress")
-          parsedValue = Math.min(
-            100,
-            Math.max(0, parseInt(String(value)) || 0)
-          );
+      let parsedValue: string | number = value;
+      if (field === "duration")
+        parsedValue = Math.max(1, parseInt(String(value)) || 1);
+      if (field === "progress")
+        parsedValue = Math.min(100, Math.max(0, parseInt(String(value)) || 0));
 
-        return { ...task, [field]: parsedValue };
-      })
-    );
+      return { ...task, [field]: parsedValue };
+    });
+    saveTasks(newTasks);
   };
 
   const cycleTaskColor = (id: string, currentColor: string): void => {
@@ -142,11 +221,11 @@ export default function App() {
       color: randomColor,
       progress: 0,
     };
-    setTasks([...tasks, newTask]);
+    saveTasks([...tasks, newTask]);
   };
 
   const deleteTask = (id: string): void => {
-    setTasks(tasks.filter((task) => task.id !== id));
+    saveTasks(tasks.filter((task) => task.id !== id));
   };
 
   // --- Drag and Drop Handlers ---
@@ -190,7 +269,7 @@ export default function App() {
     const [draggedItem] = newTasks.splice(draggedIdx, 1);
     newTasks.splice(targetIdx, 0, draggedItem);
 
-    setTasks(newTasks);
+    saveTasks(newTasks);
     setDraggedId(null);
   };
 
