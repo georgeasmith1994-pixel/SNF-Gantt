@@ -8,6 +8,9 @@ import {
   GripVertical,
   Percent,
   Palette,
+  CheckCircle2,
+  CloudOff,
+  Loader2
 } from "lucide-react";
 // @ts-ignore
 import { initializeApp } from "firebase/app";
@@ -23,7 +26,7 @@ const firebaseConfig = {
   projectId: "gantt-schedule-cd88d",
   storageBucket: "gantt-schedule-cd88d.firebasestorage.app",
   messagingSenderId: "788974027318",
-  appId: "1:788974027318:web:0e250ebe9457c2cfaf8e97",
+  appId: "1:788974027318:web:0e250ebe9457c2cfaf8e97"
 };
 
 // Initialize Firebase
@@ -119,6 +122,7 @@ export default function App() {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   useEffect(() => {
     // Authenticate the user anonymously to allow database saving
@@ -127,16 +131,19 @@ export default function App() {
         await signInAnonymously(auth);
       } catch (error) {
         console.error("Authentication failed:", error);
+        setSyncStatus('error');
       }
     };
     initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser: any) => {
+      setUser(currentUser);
+    });
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     if (!user) return;
-
+    
     // Reference to the user's specific schedule document
     const docRef = doc(
       db,
@@ -147,17 +154,30 @@ export default function App() {
       "gantt",
       "schedule"
     );
-
+    
     // Listen for real-time updates
+    setSyncStatus('saving');
     const unsubscribe = onSnapshot(
       docRef,
       (docSnap: any) => {
         if (docSnap.exists()) {
           setTasks(docSnap.data().tasks);
+          setSyncStatus('saved');
+        } else {
+          // If the database is empty, seed it with the initial tasks immediately
+          setDoc(docRef, { tasks: initialTasks })
+            .then(() => setSyncStatus('saved'))
+            .catch((err: any) => {
+              console.error("Failed to seed initial data:", err);
+              setSyncStatus('error');
+            });
         }
         setIsLoaded(true);
       },
-      (error: any) => console.error("Error fetching schedule:", error)
+      (error: any) => {
+        console.error("Error fetching schedule (Check Permissions!):", error);
+        setSyncStatus('error');
+      }
     );
     return () => unsubscribe();
   }, [user]);
@@ -166,6 +186,7 @@ export default function App() {
     setTasks(newTasks);
     // Only save if the initial load has completed, to prevent overwriting cloud data with defaults
     if (user && isLoaded) {
+      setSyncStatus('saving');
       const docRef = doc(
         db,
         "artifacts",
@@ -175,7 +196,12 @@ export default function App() {
         "gantt",
         "schedule"
       );
-      setDoc(docRef, { tasks: newTasks }).catch(console.error);
+      setDoc(docRef, { tasks: newTasks })
+        .then(() => setSyncStatus('saved'))
+        .catch((err: any) => {
+          console.error("Failed to save changes:", err);
+          setSyncStatus('error');
+        });
     }
   };
 
@@ -330,13 +356,33 @@ export default function App() {
               Quote Ref: #QUO09407 | Admin Console & Gantt Chart
             </p>
           </div>
-          <button
-            onClick={addTask}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm"
-          >
-            <Plus size={18} />
-            <span>Add Task</span>
-          </button>
+          
+          <div className="flex items-center gap-4">
+            {/* Sync Status Indicator */}
+            {syncStatus === 'saving' && (
+              <span className="flex items-center text-sm text-slate-500 font-medium">
+                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Saving...
+              </span>
+            )}
+            {syncStatus === 'saved' && (
+              <span className="flex items-center text-sm text-emerald-600 font-medium">
+                <CheckCircle2 className="w-4 h-4 mr-1.5" /> Saved
+              </span>
+            )}
+            {syncStatus === 'error' && (
+              <span className="flex items-center text-sm text-red-500 font-medium" title="Check browser console for details">
+                <CloudOff className="w-4 h-4 mr-1.5" /> Save Failed
+              </span>
+            )}
+
+            <button
+              onClick={addTask}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium transition-colors shadow-sm"
+            >
+              <Plus size={18} />
+              <span>Add Task</span>
+            </button>
+          </div>
         </header>
 
         <div className="grid lg:grid-cols-12 gap-8">
